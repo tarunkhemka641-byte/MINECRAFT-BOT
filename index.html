@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minecraft AFK Bot Panel</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #0f172a; color: #f8fafc; padding: 24px; }
+    .container { max-width: 1000px; margin: 0 auto; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; border-bottom: 1px solid #334155; padding-bottom: 16px; }
+    h1 { font-size: 1.5rem; color: #38bdf8; }
+    .card { background: #1e293b; border-radius: 8px; padding: 20px; margin-bottom: 24px; border: 1px solid #334155; }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    input { background: #0f172a; border: 1px solid #475569; color: #fff; padding: 10px; border-radius: 6px; width: 100%; font-size: 0.9rem; }
+    input:focus { outline: 1px solid #38bdf8; border-color: #38bdf8; }
+    button { background: #0284c7; color: #fff; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem; transition: background 0.2s; }
+    button:hover { background: #0369a1; }
+    button.btn-danger { background: #dc2626; }
+    button.btn-danger:hover { background: #b91c1c; }
+    button.btn-alt { background: #475569; }
+    button.btn-alt:hover { background: #334155; }
+    .bot-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 12px; display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; text-transform: uppercase; font-weight: bold; }
+    .badge-online { background: #15803d; color: #bbf7d0; }
+    .badge-connecting { background: #ca8a04; color: #fef08a; }
+    .badge-offline { background: #dc2626; color: #fecaca; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chat-box { display: flex; gap: 6px; margin-top: 10px; }
+    .stats { font-size: 0.8rem; color: #94a3b8; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Minecraft AFK Bot Controller</h1>
+      <span style="color: #94a3b8; font-size: 0.85rem;">24/7 Standby Manager</span>
+    </header>
+
+    <div class="card">
+      <h2 style="font-size: 1.1rem; margin-bottom: 12px;">Add New AFK Bot</h2>
+      <div class="form-grid">
+        <input type="text" id="host" placeholder="Server IP / Domain (e.g. play.server.com)">
+        <input type="number" id="port" placeholder="Port (default: 25565)">
+        <input type="text" id="username" placeholder="Bot Username (e.g. AFK_Master)">
+        <input type="text" id="version" placeholder="Version (e.g. 1.20.4 or empty)">
+      </div>
+      <button onclick="createBot()">Spawn & Connect Bot</button>
+    </div>
+
+    <div id="botList"></div>
+  </div>
+
+  <script>
+    async function loadBots() {
+      try {
+        const res = await fetch('/api/bots');
+        const bots = await res.json();
+        const listDiv = document.getElementById('botList');
+        
+        if (bots.length === 0) {
+          listDiv.innerHTML = '<div style="color: #64748b; text-align: center; padding: 32px;">No active bots. Add one above.</div>';
+          return;
+        }
+
+        listDiv.innerHTML = bots.map(b => {
+          let badgeClass = 'badge-offline';
+          if (b.status === 'online') badgeClass = 'badge-online';
+          if (b.status === 'connecting') badgeClass = 'badge-connecting';
+
+          return `
+            <div class="bot-card">
+              <div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <strong style="font-size: 1.1rem;">${b.username}</strong>
+                  <span class="badge ${badgeClass}">${b.status}</span>
+                </div>
+                <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 4px;">
+                  Target: <code>${b.host}:${b.port}</code> ${b.version ? `(v${b.version})` : ''}
+                </div>
+                <div class="stats">
+                  HP: ${b.health}/20 | Hunger: ${b.food}/20 | Last Status: ${b.lastMessage || 'N/A'}
+                </div>
+                <div class="chat-box">
+                  <input type="text" id="chat_${b.id}" placeholder="Type a chat command (/register, /login, etc)..." style="padding: 6px 10px; font-size: 0.8rem;">
+                  <button class="btn-alt" onclick="sendChat('${b.id}')">Send</button>
+                </div>
+              </div>
+              <div class="actions">
+                <button class="btn-alt" onclick="triggerAction('${b.id}', 'jump')">Jump</button>
+                <button class="btn-alt" onclick="triggerAction('${b.id}', 'move_forward')">Forward</button>
+                <button class="btn-alt" onclick="triggerAction('${b.id}', 'move_back')">Back</button>
+                <button class="btn-alt" onclick="triggerAction('${b.id}', 'restart')">Reconnect</button>
+                <button class="btn-danger" onclick="deleteBot('${b.id}')">Delete</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function createBot() {
+      const host = document.getElementById('host').value;
+      const port = document.getElementById('port').value;
+      const username = document.getElementById('username').value;
+      const version = document.getElementById('version').value;
+
+      if (!host || !username) {
+        alert('Please fill out at least Server IP and Username');
+        return;
+      }
+
+      await fetch('/api/bots', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host, port, username, version })
+      });
+
+      document.getElementById('username').value = '';
+      loadBots();
+    }
+
+    async function triggerAction(id, action) {
+      await fetch(`/api/bots/${id}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      loadBots();
+    }
+
+    async function sendChat(id) {
+      const input = document.getElementById(`chat_${id}`);
+      const message = input.value;
+      if (!message) return;
+
+      await fetch(`/api/bots/${id}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'chat', payload: { message } })
+      });
+      input.value = '';
+      loadBots();
+    }
+
+    async function deleteBot(id) {
+      if (!confirm('Remove this bot?')) return;
+      await fetch(`/api/bots/${id}`, { method: 'DELETE' });
+      loadBots();
+    }
+
+    setInterval(loadBots, 3000);
+    loadBots();
+  </script>
+</body>
+</html>
